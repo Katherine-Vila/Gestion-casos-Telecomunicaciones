@@ -41,11 +41,6 @@ Desarrollar una aplicación (módulo Escritorio y Web) que permita:
 
 ---
 
-## 📅 Fecha de Entrega
-**23 de marzo de 2026** – Fase 1 del proyecto.
-
----
-
 ## 🚀 Cómo ejecutar
 1. Importar las clases en un proyecto Java.  
 2. Configurar la base de datos MySQL con el script proporcionado.  
