@@ -13,25 +13,43 @@ public class CasoDAO {
 
     public void insertar(Caso caso) throws SQLException {
         String sql = "INSERT INTO casos (codigo, descripcion_solicitud, fecha_solicitud, estado, porcentaje_avance, " +
-                "fecha_limite, analisis_descripcion, argumento_rechazo, observaciones_rechazo, " +
+                "fecha_limite, fecha_puesta_produccion, fecha_devolucion, analisis_descripcion, argumento_rechazo, observaciones_rechazo, " +
                 "departamento_id, solicitante_id, jefe_desarrollo_id, programador_id, probador_id) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            ps.setString(1, caso.getCodigo());
+            if (caso.getCodigo() != null) {
+                ps.setString(1, caso.getCodigo());
+            } else {
+                ps.setNull(1, Types.VARCHAR);
+            }
             ps.setString(2, caso.getDescripcionSolicitud());
             ps.setDate(3, new Date(caso.getFechaSolicitud().getTime()));
             ps.setString(4, caso.getEstado().name());
             ps.setInt(5, caso.getPorcentajeAvance());
             ps.setDate(6, caso.getFechaLimite() != null ? new Date(caso.getFechaLimite().getTime()) : null);
-            ps.setString(7, caso.getAnalisisDescripcion());
-            ps.setString(8, caso.getArgumentoRechazo());
-            ps.setString(9, caso.getObservacionesRechazo());
-            ps.setLong(10, caso.getDepartamento().getId());
-            ps.setLong(11, caso.getSolicitante().getId());
-            ps.setLong(12, caso.getJefeDesarrollo() != null ? caso.getJefeDesarrollo().getId() : null);
-            ps.setLong(13, caso.getProgramador() != null ? caso.getProgramador().getId() : null);
-            ps.setLong(14, caso.getProbador() != null ? caso.getProbador().getId() : null);
+            ps.setDate(7, caso.getFechaPuestaProduccion() != null ? new Date(caso.getFechaPuestaProduccion().getTime()) : null);
+            ps.setDate(8, caso.getFechaDevolucion() != null ? new Date(caso.getFechaDevolucion().getTime()) : null);
+            ps.setString(9, caso.getAnalisisDescripcion());
+            ps.setString(10, caso.getArgumentoRechazo());
+            ps.setString(11, caso.getObservacionesRechazo());
+            ps.setLong(12, caso.getDepartamento().getId());
+            ps.setLong(13, caso.getSolicitante().getId());
+            if (caso.getJefeDesarrollo() != null && caso.getJefeDesarrollo().getId() != null) {
+                ps.setLong(14, caso.getJefeDesarrollo().getId());
+            } else {
+                ps.setNull(14, Types.BIGINT);
+            }
+            if (caso.getProgramador() != null && caso.getProgramador().getId() != null) {
+                ps.setLong(15, caso.getProgramador().getId());
+            } else {
+                ps.setNull(15, Types.BIGINT);
+            }
+            if (caso.getProbador() != null && caso.getProbador().getId() != null) {
+                ps.setLong(16, caso.getProbador().getId());
+            } else {
+                ps.setNull(16, Types.BIGINT);
+            }
 
             ps.executeUpdate();
             ResultSet rs = ps.getGeneratedKeys();
@@ -125,26 +143,44 @@ public class CasoDAO {
 
     public void actualizar(Caso caso) throws SQLException {
         String sql = "UPDATE casos SET codigo=?, descripcion_solicitud=?, fecha_solicitud=?, estado=?, " +
-                "porcentaje_avance=?, fecha_limite=?, analisis_descripcion=?, argumento_rechazo=?, " +
+                "porcentaje_avance=?, fecha_limite=?, fecha_puesta_produccion=?, fecha_devolucion=?, analisis_descripcion=?, argumento_rechazo=?, " +
                 "observaciones_rechazo=?, departamento_id=?, solicitante_id=?, jefe_desarrollo_id=?, " +
                 "programador_id=?, probador_id=? WHERE id=?";
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, caso.getCodigo());
+            if (caso.getCodigo() != null) {
+                ps.setString(1, caso.getCodigo());
+            } else {
+                ps.setNull(1, Types.VARCHAR);
+            }
             ps.setString(2, caso.getDescripcionSolicitud());
             ps.setDate(3, new Date(caso.getFechaSolicitud().getTime()));
             ps.setString(4, caso.getEstado().name());
             ps.setInt(5, caso.getPorcentajeAvance());
             ps.setDate(6, caso.getFechaLimite() != null ? new Date(caso.getFechaLimite().getTime()) : null);
-            ps.setString(7, caso.getAnalisisDescripcion());
-            ps.setString(8, caso.getArgumentoRechazo());
-            ps.setString(9, caso.getObservacionesRechazo());
-            ps.setLong(10, caso.getDepartamento().getId());
-            ps.setLong(11, caso.getSolicitante().getId());
-            ps.setLong(12, caso.getJefeDesarrollo() != null ? caso.getJefeDesarrollo().getId() : null);
-            ps.setLong(13, caso.getProgramador() != null ? caso.getProgramador().getId() : null);
-            ps.setLong(14, caso.getProbador() != null ? caso.getProbador().getId() : null);
-            ps.setLong(15, caso.getId());
+            ps.setDate(7, caso.getFechaPuestaProduccion() != null ? new Date(caso.getFechaPuestaProduccion().getTime()) : null);
+            ps.setDate(8, caso.getFechaDevolucion() != null ? new Date(caso.getFechaDevolucion().getTime()) : null);
+            ps.setString(9, caso.getAnalisisDescripcion());
+            ps.setString(10, caso.getArgumentoRechazo());
+            ps.setString(11, caso.getObservacionesRechazo());
+            ps.setLong(12, caso.getDepartamento().getId());
+            ps.setLong(13, caso.getSolicitante().getId());
+            if (caso.getJefeDesarrollo() != null && caso.getJefeDesarrollo().getId() != null) {
+                ps.setLong(14, caso.getJefeDesarrollo().getId());
+            } else {
+                ps.setNull(14, Types.BIGINT);
+            }
+            if (caso.getProgramador() != null && caso.getProgramador().getId() != null) {
+                ps.setLong(15, caso.getProgramador().getId());
+            } else {
+                ps.setNull(15, Types.BIGINT);
+            }
+            if (caso.getProbador() != null && caso.getProbador().getId() != null) {
+                ps.setLong(16, caso.getProbador().getId());
+            } else {
+                ps.setNull(16, Types.BIGINT);
+            }
+            ps.setLong(17, caso.getId());
 
             ps.executeUpdate();
         }
@@ -159,6 +195,8 @@ public class CasoDAO {
         c.setEstado(EstadoCaso.valueOf(rs.getString("estado")));
         c.setPorcentajeAvance(rs.getInt("porcentaje_avance"));
         c.setFechaLimite(rs.getDate("fecha_limite"));
+        c.setFechaPuestaProduccion(rs.getDate("fecha_puesta_produccion"));
+        c.setFechaDevolucion(rs.getDate("fecha_devolucion"));
         c.setAnalisisDescripcion(rs.getString("analisis_descripcion"));
         c.setArgumentoRechazo(rs.getString("argumento_rechazo"));
         c.setObservacionesRechazo(rs.getString("observaciones_rechazo"));

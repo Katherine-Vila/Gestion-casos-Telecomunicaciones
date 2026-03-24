@@ -5,48 +5,111 @@ import sv.edu.udb.gestion.entity.*;
 
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Date;
 import java.util.List;
 import java.util.Random;
 
+/**
+ * Servicio de casos: concentra la lógica de negocio (estados, transiciones, código generado,
+ * bitácora y reglas de vencimiento). Los DAO hacen el acceso a datos; aquí se valida el flujo.
+ */
 public class CasoService {
-    private CasoDAO casoDAO = new CasoDAO();
-    private BitacoraDAO bitacoraDAO = new BitacoraDAO();
-    private UsuarioDAO usuarioDAO = new UsuarioDAO();
-    private DepartamentoDAO departamentoDAO = new DepartamentoDAO();
+    private final CasoDAO casoDAO = new CasoDAO();
+    private final BitacoraDAO bitacoraDAO = new BitacoraDAO();
+    private final UsuarioDAO usuarioDAO = new UsuarioDAO();
+    private final DepartamentoDAO departamentoDAO = new DepartamentoDAO();
 
-    // Genera código de caso: códigoDepartamento + YYMMDD + 3 dígitos aleatorios
-    private String generarCodigo(Departamento depto, Date fecha) {
-        String codDepto = depto.getCodigo().toUpperCase();
+
+    // Arma el código tipo PRS240223001: 3 letras del depto + fecha de la solicitud (año/mes/día con 2 dígitos el año) + 3 números al azar
+    private String generarCodigoIntento(Departamento depto, Date fechaSolicitud) {
+        String codDepto = depto.getCodigo() != null ? depto.getCodigo().toUpperCase().replaceAll("[^A-Z]", "") : "";
+        if (codDepto.length() < 3) {
+            StringBuilder sb = new StringBuilder(codDepto);
+            while (sb.length() < 3) {
+                sb.append('X');
+            }
+            codDepto = sb.toString();
+        } else if (codDepto.length() > 3) {
+            codDepto = codDepto.substring(0, 3);
+        }
         SimpleDateFormat sdf = new SimpleDateFormat("yyMMdd");
-        String fechaStr = sdf.format(fecha);
-        Random rand = new Random();
-        int num = rand.nextInt(1000); // 0-999
+        String fechaStr = sdf.format(fechaSolicitud);
+        int num = new Random().nextInt(1000);
         String numStr = String.format("%03d", num);
         return codDepto + fechaStr + numStr;
     }
 
-    // 1. Jefe de área solicita un caso
-    public void solicitarCaso(String descripcion, Long departamentoId, Long solicitanteId) throws SQLException {
+
+    //Genera un código que no esté repetido en la base (por si el azar choca con otro caso).
+    private String generarCodigoUnico(Departamento depto, Date fechaSolicitud) throws SQLException {
+        String codigo;
+        int intentos = 0;
+        do {
+            codigo = generarCodigoIntento(depto, fechaSolicitud);
+            intentos++;
+            if (intentos > 50) {
+                throw new IllegalStateException("No se pudo generar un código único; intente de nuevo.");
+            }
+        } while (casoDAO.buscarPorCodigo(codigo) != null);
+        return codigo;
+    }
+
+    private static LocalDate aFechaLocal(Date d) {
+        return d.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+    }
+
+    // ---------- 1) Pedir caso (solo queda “en espera”; todavía no hay código oficial) ----------
+
+    /**
+     * El jefe de área pide abrir un caso: se guarda la descripción y queda {@code EN_ESPERA}.
+     * El código tipo PRS… se genera después, cuando desarrollo acepta y asigna ({@link #asignarProgramador}).
+     *
+     * @return id del caso insertado (útil para demos y pantallas que siguen el flujo con ese mismo registro)
+     */
+    public Long solicitarCaso(String descripcion, Long departamentoId, Long solicitanteId) throws SQLException {
         Departamento depto = departamentoDAO.buscarPorId(departamentoId);
         Usuario solicitante = usuarioDAO.buscarPorId(solicitanteId);
         if (depto == null || solicitante == null) {
-            throw new IllegalArgumentException("Departamento o solicitante no válido");
+            throw new IllegalArgumentException("Departamento o solicitante no válido.");
         }
         Caso caso = new Caso(descripcion, new Date(), depto, solicitante);
-        caso.setCodigo(generarCodigo(depto, new Date()));
+        caso.setCodigo(null);
         caso.setEstado(EstadoCaso.EN_ESPERA);
         caso.setPorcentajeAvance(0);
         casoDAO.insertar(caso);
-        System.out.println("Caso solicitado con código: " + caso.getCodigo());
+        System.out.println("Solicitud guardada (en espera). Aún no tiene código; lo tendrá cuando el jefe de desarrollo la acepte.");
+        return caso.getId();
     }
 
-    // 2. Jefe de desarrollo rechaza solicitud
+    // ---------- 2) El jefe de desarrollo “mira” el caso antes de decidir ----------
+
+
+
+    // Sirve para que en pantalla se cargue el caso y se vea si está en espera.
+    // No cambia nada solo: después se llama a rechazar la solicitud o a asignar programador.
+    public Caso analizarCaso(Long casoId) throws SQLException {
+        Caso caso = casoDAO.buscarPorId(casoId);
+        if (caso == null) {
+            throw new IllegalArgumentException("Caso no encontrado.");
+        }
+        if (caso.getEstado() != EstadoCaso.EN_ESPERA) {
+            throw new IllegalStateException("Este caso ya no está esperando respuesta del jefe de desarrollo.");
+        }
+        return caso;
+    }
+
+
+    // El jefe de desarrollo dice “no” al pedido inicial: queda RECHAZADO y se guarda el porqué.
+
     public void rechazarSolicitud(Long casoId, String argumento) throws SQLException {
         Caso caso = casoDAO.buscarPorId(casoId);
-        if (caso == null) throw new IllegalArgumentException("Caso no encontrado");
+        if (caso == null) {
+            throw new IllegalArgumentException("Caso no encontrado.");
+        }
         if (caso.getEstado() != EstadoCaso.EN_ESPERA) {
-            throw new IllegalStateException("El caso no está en espera de respuesta");
+            throw new IllegalStateException("El caso no está en espera de respuesta.");
         }
         caso.setEstado(EstadoCaso.RECHAZADO);
         caso.setArgumentoRechazo(argumento);
@@ -54,103 +117,207 @@ public class CasoService {
         System.out.println("Solicitud rechazada.");
     }
 
-    // 3. Jefe de desarrollo acepta y asigna programador, fecha límite, probador
-    public void aceptarYAsignar(Long casoId, Long programadorId, Date fechaLimite, String analisisDescripcion, Long probadorId) throws SQLException {
+    // ---------- 3) Aceptar: se genera el código, se asigna gente y pasa a EN_DESARROLLO ----------
+
+
+
+    // El jefe de desarrollo acepta: aquí nace el código PRS…, se elige programador, fecha límite y probador.
+    // El programador debe ser de los que dependen de ese jefe; el probador debe ser del mismo departamento
+    // que pidió el caso.
+    public void asignarProgramador(Long casoId, Long jefeDesarrolloId, Long programadorId, Date fechaLimite,
+                                   String analisisDescripcion, Long probadorId) throws SQLException {
         Caso caso = casoDAO.buscarPorId(casoId);
-        if (caso == null) throw new IllegalArgumentException("Caso no encontrado");
+        if (caso == null) {
+            throw new IllegalArgumentException("Caso no encontrado.");
+        }
         if (caso.getEstado() != EstadoCaso.EN_ESPERA) {
-            throw new IllegalStateException("El caso no está en espera de respuesta");
+            throw new IllegalStateException("El caso no está en espera de respuesta.");
+        }
+
+        Usuario jefe = usuarioDAO.buscarPorId(jefeDesarrolloId);
+        if (jefe == null || jefe.getRol() != Rol.JEFE_DESARROLLO) {
+            throw new IllegalArgumentException("Jefe de desarrollo no válido.");
         }
 
         Usuario programador = usuarioDAO.buscarPorId(programadorId);
         if (programador == null || programador.getRol() != Rol.PROGRAMADOR) {
-            throw new IllegalArgumentException("Programador no válido");
+            throw new IllegalArgumentException("Programador no válido.");
         }
-        Usuario probador = usuarioDAO.buscarPorId(probadorId);
-        if (probador == null || probador.getRol() != Rol.EMPLEADO) {
-            throw new IllegalArgumentException("Probador debe ser un empleado del área funcional");
+        if (programador.getJefeDesarrollo() == null || !programador.getJefeDesarrollo().getId().equals(jefeDesarrolloId)) {
+            throw new IllegalArgumentException("Ese programador no está a cargo de ese jefe de desarrollo.");
         }
 
+        Usuario probador = usuarioDAO.buscarPorId(probadorId);
+        if (probador == null || probador.getRol() != Rol.EMPLEADO) {
+            throw new IllegalArgumentException("El probador debe ser un empleado del área que pidió el trabajo.");
+        }
+        if (probador.getDepartamento() == null
+                || caso.getDepartamento() == null
+                || !probador.getDepartamento().getId().equals(caso.getDepartamento().getId())) {
+            throw new IllegalArgumentException("El probador debe ser del mismo departamento solicitante.");
+        }
+
+        caso.setCodigo(generarCodigoUnico(caso.getDepartamento(), caso.getFechaSolicitud()));
+        caso.setJefeDesarrollo(jefe);
         caso.setProgramador(programador);
         caso.setProbador(probador);
         caso.setFechaLimite(fechaLimite);
         caso.setAnalisisDescripcion(analisisDescripcion);
         caso.setEstado(EstadoCaso.EN_DESARROLLO);
         casoDAO.actualizar(caso);
-        System.out.println("Caso asignado y en desarrollo.");
+        System.out.println("Caso aceptado. Código asignado: " + caso.getCodigo() + " — Estado: en desarrollo.");
     }
 
-    // 4. Programador actualiza bitácora y porcentaje
-    public void actualizarBitacora(Long casoId, String descripcion, int nuevoPorcentaje) throws SQLException {
+
+    public void aceptarYAsignar(Long casoId, Long jefeDesarrolloId, Long programadorId, Date fechaLimite,
+                                String analisisDescripcion, Long probadorId) throws SQLException {
+        asignarProgramador(casoId, jefeDesarrolloId, programadorId, fechaLimite, analisisDescripcion, probadorId);
+    }
+
+    // ---------- 4) Bitácora: solo anota trabajo y porcentaje; no “cierra” el caso sola ----------
+
+
+    // El programador escribe qué hizo y qué tanto lleva (0 a 100). No pasa a “esperando aprobación” solo por llegar al 100%.
+    public void registrarBitacora(Long casoId, String descripcion, int nuevoPorcentaje) throws SQLException {
         Caso caso = casoDAO.buscarPorId(casoId);
-        if (caso == null) throw new IllegalArgumentException("Caso no encontrado");
+        if (caso == null) {
+            throw new IllegalArgumentException("Caso no encontrado.");
+        }
         if (caso.getEstado() != EstadoCaso.EN_DESARROLLO && caso.getEstado() != EstadoCaso.DEVUELTO) {
-            throw new IllegalStateException("El caso no está en desarrollo o devuelto");
+            throw new IllegalStateException("Solo se puede registrar bitácora mientras está en desarrollo o devuelto con observaciones.");
         }
         if (nuevoPorcentaje < 0 || nuevoPorcentaje > 100) {
-            throw new IllegalArgumentException("Porcentaje debe estar entre 0 y 100");
+            throw new IllegalArgumentException("El porcentaje debe estar entre 0 y 100.");
         }
 
         Bitacora bit = new Bitacora(caso, new Date(), descripcion, nuevoPorcentaje);
         bitacoraDAO.insertar(bit);
 
         caso.setPorcentajeAvance(nuevoPorcentaje);
-        if (nuevoPorcentaje == 100) {
-            caso.setEstado(EstadoCaso.ESPERANDO_APROBACION);
-            System.out.println("Caso finalizado por programador, pasa a esperar aprobación.");
-        }
         casoDAO.actualizar(caso);
-        System.out.println("Bitácora registrada. Avance: " + nuevoPorcentaje + "%");
+        System.out.println("Bitácora guardada. Avance del caso: " + nuevoPorcentaje + "%.");
     }
 
-    // 5. Probador aprueba o rechaza
-    public void aprobarCaso(Long casoId) throws SQLException {
+    public void actualizarBitacora(Long casoId, String descripcion, int nuevoPorcentaje) throws SQLException {
+        registrarBitacora(casoId, descripcion, nuevoPorcentaje);
+    }
+
+    // ---------- 5) Cuando el programador dice “ya terminé mi parte” ----------
+
+
+    // El programador marca que entregó; el caso pasa a esperar al probador del área.
+    public void finalizarCaso(Long casoId) throws SQLException {
         Caso caso = casoDAO.buscarPorId(casoId);
-        if (caso == null) throw new IllegalArgumentException("Caso no encontrado");
+        if (caso == null) {
+            throw new IllegalArgumentException("Caso no encontrado.");
+        }
+        if (caso.getEstado() != EstadoCaso.EN_DESARROLLO && caso.getEstado() != EstadoCaso.DEVUELTO) {
+            throw new IllegalStateException("Solo se puede finalizar cuando está en desarrollo o devuelto para correcciones.");
+        }
+        caso.setEstado(EstadoCaso.ESPERANDO_APROBACION);
+        casoDAO.actualizar(caso);
+        System.out.println("Caso enviado a esperar aprobación del área solicitante.");
+    }
+
+    // ---------- 6) El probador aprueba o devuelve ----------
+
+
+    // El probador está conforme: se guarda el día de puesta en producción y el caso queda FINALIZADO.
+    public void aprobarCaso(Long casoId, Date fechaPuestaProduccion) throws SQLException {
+        Caso caso = casoDAO.buscarPorId(casoId);
+        if (caso == null) {
+            throw new IllegalArgumentException("Caso no encontrado.");
+        }
         if (caso.getEstado() != EstadoCaso.ESPERANDO_APROBACION) {
-            throw new IllegalStateException("El caso no está esperando aprobación");
+            throw new IllegalStateException("El caso no está esperando aprobación.");
+        }
+        if (fechaPuestaProduccion == null) {
+            throw new IllegalArgumentException("Debe indicar la fecha de puesta en producción.");
         }
         caso.setEstado(EstadoCaso.FINALIZADO);
+        caso.setFechaPuestaProduccion(fechaPuestaProduccion);
         casoDAO.actualizar(caso);
-        System.out.println("Caso aprobado y finalizado.");
+        System.out.println("Caso aprobado y finalizado. Fecha de puesta en producción registrada.");
     }
 
-    public void rechazarCasoConObservaciones(Long casoId, String observaciones) throws SQLException {
+    /** Sobrecarga: usa la fecha de hoy como puesta en producción (cómodo para pruebas rápidas). */
+    public void aprobarCaso(Long casoId) throws SQLException {
+        aprobarCaso(casoId, new Date());
+    }
+
+
+    // El probador no acepta el trabajo: queda DEVUELTO, se guardan observaciones y la fecha de devolución (empiezan los 7 días).
+    public void rechazarCaso(Long casoId, String observaciones) throws SQLException {
         Caso caso = casoDAO.buscarPorId(casoId);
-        if (caso == null) throw new IllegalArgumentException("Caso no encontrado");
+        if (caso == null) {
+            throw new IllegalArgumentException("Caso no encontrado.");
+        }
         if (caso.getEstado() != EstadoCaso.ESPERANDO_APROBACION) {
-            throw new IllegalStateException("El caso no está esperando aprobación");
+            throw new IllegalStateException("El caso no está esperando aprobación.");
         }
         caso.setEstado(EstadoCaso.DEVUELTO);
         caso.setObservacionesRechazo(observaciones);
-        // Reiniciamos porcentaje? No, solo se registra observación
+        caso.setFechaDevolucion(new Date());
         casoDAO.actualizar(caso);
-        System.out.println("Caso devuelto con observaciones. El programador tiene 7 días para corregir.");
-        // Aquí se podría programar una tarea para verificar vencimiento, pero lo dejamos manual.
+        System.out.println("Caso devuelto con observaciones. Plazo de 7 días naturales desde la fecha de devolución (revisa vencimientos en el sistema).");
     }
 
-    // Verificar vencimiento (se debe llamar periódicamente)
+    public void rechazarCasoConObservaciones(Long casoId, String observaciones) throws SQLException {
+        rechazarCaso(casoId, observaciones);
+    }
+
+    // ---------- 7) Vencimientos: fecha límite del jefe o plazo de 7 días tras devolución del probador ----------
+
+
+    /**
+     * Conviene ejecutarla al arrancar la app o en un job diario: marca VENCIDO cuando ya no aplica el plazo.
+     * <p>Criterio unificado (misma idea en ambos casos):</p>
+     * <ul>
+     *   <li><b>EN_DESARROLLO</b>: el día de {@code fechaLimite} sigue siendo válido para entregar;
+     *       si {@code hoy} es posterior a ese día y el caso sigue en desarrollo → VENCIDO.</li>
+     *   <li><b>DEVUELTO</b>: 7 días naturales desde la fecha de devolución (solo fecha);
+     *       el día 7 del plazo sigue siendo válido; si {@code hoy} es posterior a ese último día → VENCIDO.</li>
+     * </ul>
+     */
     public void verificarVencimientos() throws SQLException {
-        List<Caso> casos = casoDAO.listarPorEstado(EstadoCaso.EN_DESARROLLO);
-        Date hoy = new Date();
-        for (Caso c : casos) {
-            if (c.getFechaLimite() != null && c.getFechaLimite().before(hoy)) {
+        LocalDate hoy = LocalDate.now();
+
+        List<Caso> enDesarrollo = casoDAO.listarPorEstado(EstadoCaso.EN_DESARROLLO);
+        for (Caso c : enDesarrollo) {
+            if (c.getFechaLimite() == null) {
+                continue;
+            }
+            LocalDate limite = aFechaLocal(c.getFechaLimite());
+            // Primer día vencido = día siguiente al de la fecha límite
+            if (hoy.isAfter(limite)) {
                 c.setEstado(EstadoCaso.VENCIDO);
                 casoDAO.actualizar(c);
-                System.out.println("Caso " + c.getCodigo() + " ha vencido.");
+                System.out.println("Caso " + c.getCodigo() + " venció: se pasó la fecha límite sin entregar.");
+            }
+        }
+
+        List<Caso> devueltos = casoDAO.listarPorEstado(EstadoCaso.DEVUELTO);
+        for (Caso c : devueltos) {
+            if (c.getFechaDevolucion() == null) {
+                continue;
+            }
+            LocalDate inicio = aFechaLocal(c.getFechaDevolucion());
+            // 7 días naturales: día 1 = inicio, día 7 = inicio + 6; vencido desde inicio + 7
+            LocalDate ultimoDiaDelPlazo = inicio.plusDays(6);
+            if (hoy.isAfter(ultimoDiaDelPlazo)) {
+                c.setEstado(EstadoCaso.VENCIDO);
+                casoDAO.actualizar(c);
+                System.out.println("Caso " + c.getCodigo() + " venció: se agotaron los 7 días para corregir observaciones.");
             }
         }
     }
 
-    // 6. Generar informe por rango de fechas (cantidad de casos cumplidos, en desarrollo, rechazados)
-    // Esto se puede implementar con consultas SQL agrupadas. Aquí solo mostramos la idea.
+    // ---------- Informes (idea para Persona 3; aquí solo el esqueleto) ----------
+
     public void generarInforme(Date fechaInicio, Date fechaFin) throws SQLException {
-        // Implementar según necesidad
-        System.out.println("Informe de casos entre " + fechaInicio + " y " + fechaFin);
-        // Podrías hacer consultas con COUNT y GROUP BY estado.
+        System.out.println("Informe de casos entre " + fechaInicio + " y " + fechaFin + " (implementar consultas con DAO).");
     }
 
-    // Método auxiliar para obtener bitácoras de un caso
     public List<Bitacora> obtenerBitacoras(Long casoId) throws SQLException {
         return bitacoraDAO.listarPorCaso(casoId);
     }

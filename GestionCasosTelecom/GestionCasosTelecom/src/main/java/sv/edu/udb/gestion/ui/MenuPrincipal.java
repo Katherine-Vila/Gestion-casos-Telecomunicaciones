@@ -23,6 +23,13 @@ public class MenuPrincipal {
     public static void main(String[] args) {
         DatabaseConnection.testConnection();
 
+        // Cada vez que abres el programa, revisamos si algún caso ya se venció (fecha límite o 7 días en devuelto)
+        try {
+            casoService.verificarVencimientos();
+        } catch (SQLException e) {
+            System.err.println("No se pudieron revisar vencimientos: " + e.getMessage());
+        }
+
         // Cargar o crear un usuario administrador automáticamente
         try {
             cargarOcrearAdmin();
@@ -36,9 +43,8 @@ public class MenuPrincipal {
         mostrarMenuPorRol();
     }
 
-    /**
-     * Busca un administrador en la BD; si no existe, lo crea.
-     */
+
+    //Busca un administrador en la BD; si no existe, lo crea.
     private static void cargarOcrearAdmin() throws SQLException {
         // Intentar buscar cualquier usuario con rol ADMIN
         List<Usuario> admins = usuarioDAO.listarPorRol(Rol.ADMIN);
@@ -75,10 +81,11 @@ public class MenuPrincipal {
             System.out.println("8. Ver casos a mi cargo");
             System.out.println("9. Ver bitácora de un caso");
             System.out.println("10. Solicitar nuevo caso (como jefe de área)");
-            System.out.println("11. Actualizar bitácora (como programador)");
-            System.out.println("12. Aprobar caso (como probador)");
-            System.out.println("13. Rechazar caso con observaciones (como probador)");
-            System.out.println("14. Salir");
+            System.out.println("11. Registrar bitácora (como programador)");
+            System.out.println("12. Finalizar caso / enviar a probador (como programador)");
+            System.out.println("13. Aprobar caso (como probador) — pide fecha de puesta en producción");
+            System.out.println("14. Rechazar caso con observaciones (como probador)");
+            System.out.println("15. Salir");
             System.out.print("Opción: ");
             int op = leerEntero();
 
@@ -118,12 +125,15 @@ public class MenuPrincipal {
                         actualizarBitacora();
                         break;
                     case 12:
-                        aprobarCaso();
+                        finalizarCasoProgramador();
                         break;
                     case 13:
-                        rechazarCaso();
+                        aprobarCaso();
                         break;
                     case 14:
+                        rechazarCaso();
+                        break;
+                    case 15:
                         System.out.println("Saliendo...");
                         System.exit(0);
                         break;
@@ -226,7 +236,8 @@ public class MenuPrincipal {
         List<Caso> casos = casoDAO.listarPorEstado(EstadoCaso.EN_ESPERA);
         System.out.println("--- SOLICITUDES PENDIENTES ---");
         for (Caso c : casos) {
-            System.out.println(c.getId() + " - " + c.getCodigo() + " - " + c.getDescripcionSolicitud());
+            String cod = c.getCodigo() != null ? c.getCodigo() : "(aún sin código)";
+            System.out.println(c.getId() + " - " + cod + " - " + c.getDescripcionSolicitud());
         }
     }
 
@@ -279,7 +290,7 @@ public class MenuPrincipal {
         System.out.print("ID del probador: ");
         Long probId = leerLong();
 
-        casoService.aceptarYAsignar(casoId, progId, fechaLimite, analisis, probId);
+        casoService.asignarProgramador(casoId, jefeId, progId, fechaLimite, analisis, probId);
     }
 
     private static void rechazarSolicitud() throws SQLException {
@@ -340,13 +351,29 @@ public class MenuPrincipal {
         String desc = scanner.nextLine();
         System.out.print("Nuevo porcentaje de avance (0-100): ");
         int porc = leerEntero();
-        casoService.actualizarBitacora(casoId, desc, porc);
+        casoService.registrarBitacora(casoId, desc, porc);
+    }
+
+    private static void finalizarCasoProgramador() throws SQLException {
+        System.out.print("ID del caso: ");
+        Long casoId = leerLong();
+        casoService.finalizarCaso(casoId);
     }
 
     private static void aprobarCaso() throws SQLException {
         System.out.print("ID del caso: ");
         Long casoId = leerLong();
-        casoService.aprobarCaso(casoId);
+        System.out.print("Fecha de puesta en producción (yyyy-MM-dd): ");
+        String fechaStr = scanner.nextLine();
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        Date fechaProd;
+        try {
+            fechaProd = sdf.parse(fechaStr);
+        } catch (ParseException e) {
+            System.out.println("Fecha inválida.");
+            return;
+        }
+        casoService.aprobarCaso(casoId, fechaProd);
     }
 
     private static void rechazarCaso() throws SQLException {
