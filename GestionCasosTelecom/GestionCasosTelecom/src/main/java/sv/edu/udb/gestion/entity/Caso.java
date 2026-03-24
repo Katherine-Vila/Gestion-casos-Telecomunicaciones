@@ -9,6 +9,8 @@ public class Caso {
     private EstadoCaso estado;
     private Integer porcentajeAvance; // 0-100
     private Date fechaLimite;
+    private Date fechaPuestaProduccion;  // Cuando el probador aprueba: dia en que el cambio sale a produccion
+    private Date fechaDevolucion;  // Dia en que el probador devolvio el caso; de aqui cuentan los 7 días para corregir
     private String analisisDescripcion;
     private String argumentoRechazo;
     private String observacionesRechazo;
@@ -53,6 +55,12 @@ public class Caso {
 
     public Date getFechaLimite() { return fechaLimite; }
     public void setFechaLimite(Date fechaLimite) { this.fechaLimite = fechaLimite; }
+
+    public Date getFechaPuestaProduccion() { return fechaPuestaProduccion; }
+    public void setFechaPuestaProduccion(Date fechaPuestaProduccion) { this.fechaPuestaProduccion = fechaPuestaProduccion; }
+
+    public Date getFechaDevolucion() { return fechaDevolucion; }
+    public void setFechaDevolucion(Date fechaDevolucion) { this.fechaDevolucion = fechaDevolucion; }
 
     public String getAnalisisDescripcion() { return analisisDescripcion; }
     public void setAnalisisDescripcion(String analisisDescripcion) { this.analisisDescripcion = analisisDescripcion; }
