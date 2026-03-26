@@ -5,7 +5,9 @@ import sv.edu.udb.gestion.util.DatabaseConnection;
 
 import java.sql.*;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class CasoDAO {
     private DepartamentoDAO deptoDAO = new DepartamentoDAO();
@@ -184,6 +186,45 @@ public class CasoDAO {
 
             ps.executeUpdate();
         }
+    }
+
+    // --- 3) Reportes por rango de fechas (DAO) ---
+    public Map<EstadoCaso, Integer> contarCasosPorEstadoYFechas(Date fechaInicio, Date fechaFin) throws SQLException {
+        Map<EstadoCaso, Integer> conteoPorEstado = new HashMap<>();
+
+        // Inicializamos solo los estados que el reporte de Punto 3 necesita.
+        conteoPorEstado.put(EstadoCaso.FINALIZADO, 0);
+        conteoPorEstado.put(EstadoCaso.EN_DESARROLLO, 0);
+        conteoPorEstado.put(EstadoCaso.RECHAZADO, 0);
+
+        // En tu BD, la columna de creación/solicitud que se usa en INSERT es: fecha_solicitud.
+        String sql = "SELECT estado, COUNT(*) AS cantidad FROM casos " +
+                "WHERE fecha_solicitud BETWEEN ? AND ? " +
+                "GROUP BY estado";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setDate(1, fechaInicio);
+            pstmt.setDate(2, fechaFin);
+
+            ResultSet rs = pstmt.executeQuery();
+            while (rs.next()) {
+                String estadoStr = rs.getString("estado");
+                int cantidad = rs.getInt("cantidad");
+
+                try {
+                    EstadoCaso estado = EstadoCaso.valueOf(estadoStr);
+                    if (conteoPorEstado.containsKey(estado)) {
+                        conteoPorEstado.put(estado, cantidad);
+                    }
+                } catch (IllegalArgumentException e) {
+                    // Ignoramos estados que no existan en el enum o no nos interesen.
+                    System.err.println("Advertencia: Estado de caso no reconocido: " + estadoStr);
+                }
+            }
+        }
+
+        return conteoPorEstado;
     }
 
     private Caso mapearCaso(ResultSet rs) throws SQLException {

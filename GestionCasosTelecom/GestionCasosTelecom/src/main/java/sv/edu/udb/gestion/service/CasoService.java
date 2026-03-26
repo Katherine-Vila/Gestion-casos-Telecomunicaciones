@@ -321,4 +321,99 @@ public class CasoService {
     public List<Bitacora> obtenerBitacoras(Long casoId) throws SQLException {
         return bitacoraDAO.listarPorCaso(casoId);
     }
+
+    // --- 1) Utilidades para interfaces de escritorio (UI) ---
+    // Estas sobrecargas facilitan que las pantallas Swing llamen a la lógica del servicio.
+
+    // --- 1) Obtener departamentos para combos (UI) ---
+    public List<Departamento> obtenerTodosDepartamentos() throws SQLException {
+        return departamentoDAO.listarTodos();
+    }
+
+    // --- 1) Obtener usuarios por rol (UI) ---
+    // Ejemplos de rol esperados: "PROGRAMADOR", "EMPLEADO", "JEFE_AREA", etc.
+    public List<Usuario> obtenerUsuariosPorRol(String rol) throws SQLException {
+        if (rol == null || rol.trim().isEmpty()) {
+            throw new IllegalArgumentException("Rol no válido.");
+        }
+
+        Rol rolEnum;
+        try {
+            rolEnum = Rol.valueOf(rol.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Rol no reconocido: " + rol, e);
+        }
+
+        return usuarioDAO.listarPorRol(rolEnum);
+    }
+
+    // --- 1) Buscar caso por ID (UI) ---
+    public Caso obtenerCasoPorId(Long casoId) throws SQLException {
+        if (casoId == null) {
+            throw new IllegalArgumentException("ID de caso no válido.");
+        }
+        return casoDAO.buscarPorId(casoId);
+    }
+
+    // --- 1) Registrar bitácora sin porcentaje explícito (UI) ---
+    public void registrarBitacora(Long casoId, String descripcion) throws SQLException {
+        Caso caso = casoDAO.buscarPorId(casoId);
+        if (caso == null) {
+            throw new IllegalArgumentException("Caso no encontrado.");
+        }
+        int porcentajeActual = caso.getPorcentajeAvance() != null ? caso.getPorcentajeAvance() : 0;
+        registrarBitacora(casoId, descripcion, porcentajeActual);
+    }
+
+    // --- 1) Asignación simplificada (UI Punto 1) ---
+    // Esta versión toma un programador y asume valores por defecto para completar el flujo real.
+    public void asignarProgramador(Long casoId, Long programadorId) throws SQLException {
+        Caso caso = casoDAO.buscarPorId(casoId);
+        if (caso == null) {
+            throw new IllegalArgumentException("Caso no encontrado.");
+        }
+        if (caso.getEstado() != EstadoCaso.EN_ESPERA) {
+            throw new IllegalStateException("El caso no está en estado EN_ESPERA.");
+        }
+
+        Usuario programador = usuarioDAO.buscarPorId(programadorId);
+        if (programador == null || programador.getRol() != Rol.PROGRAMADOR) {
+            throw new IllegalArgumentException("Programador no válido.");
+        }
+        if (programador.getJefeDesarrollo() == null || programador.getJefeDesarrollo().getId() == null) {
+            throw new IllegalArgumentException("El programador no tiene jefe de desarrollo asignado.");
+        }
+        if (caso.getDepartamento() == null || caso.getDepartamento().getId() == null) {
+            throw new IllegalArgumentException("El caso no tiene departamento asignado.");
+        }
+
+        // Elegimos un probador del mismo departamento (primer match).
+        List<Usuario> empleados = usuarioDAO.listarPorRol(Rol.EMPLEADO);
+        Usuario probador = null;
+        for (Usuario e : empleados) {
+            if (e.getDepartamento() != null
+                    && e.getDepartamento().getId() != null
+                    && e.getDepartamento().getId().equals(caso.getDepartamento().getId())) {
+                probador = e;
+                break;
+            }
+        }
+        if (probador == null) {
+            throw new IllegalStateException("No se encontró un probador (EMPLEADO) para el departamento del caso.");
+        }
+
+        Long jefeDesarrolloId = programador.getJefeDesarrollo().getId();
+        Date fechaLimite = new Date(System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000); // 7 días por defecto
+        String analisisDescripcion = "Análisis inicial (simulado desde interfaz de Punto 1).";
+
+        // Llamamos al método completo del flujo real.
+        asignarProgramador(
+                casoId,
+                jefeDesarrolloId,
+                programadorId,
+                fechaLimite,
+                analisisDescripcion,
+                probador.getId()
+        );
+    }
 }

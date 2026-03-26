@@ -12,7 +12,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Scanner;
 
-public class MenuPrincipal {
+public class  MenuPrincipal {
     private static Scanner scanner = new Scanner(System.in);
     private static Usuario usuarioActual = null;
     private static CasoService casoService = new CasoService();
