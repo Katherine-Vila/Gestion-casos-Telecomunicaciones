@@ -1,0 +1,7 @@
+# Ignorar configuraciones de IDE
+.idea/
+*.iml
+
+# Ignorar compilados
+*.class
+/out/
